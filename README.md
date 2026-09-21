@@ -39,9 +39,79 @@ Base offsets at full spread: L `+12` cents / `20` ms, R `-9` cents / `28` ms.
 
 Input: mono or stereo. Output: stereo.
 
-## DSP
+## How it works
 
-YIN tracks pitch. Each voice is transposed with Signalsmith Stretch (`presetCheaper`), then cubic-interpolated delay. Dry is delayed by Stretch latency so mix=0 is the original, aligned.
+A classic chorus delays one copy of the same waveform and wobbles that delay with an LFO. The copy stays correlated with the dry signal, so the sum combs: notches that move with the LFO. Doubler instead builds two *other performances* of the input: each voice has its own pitch trajectory and its own delay, so the wet is a re-interpretation, not a sliding echo of the same samples.
+
+```
+in L/R ──► copy to src, fold to mono
+              │
+              ├── YIN pitch + envelope (every 256 samples)
+              ├── humanizer → cents + delay per voice
+              │
+              ├── Stretch L  (pitch only, same in/out length)
+              ├── Stretch R
+              │         │
+              │         ▼
+              │    cubic delay (12–28 ms, independent)
+              │
+              └── dry delay = Stretch latency
+                        │
+                        ▼
+                   mix + width matrix → out L/R
+```
+
+### 1. Split
+
+Each block is copied so processing can run in-place. A mono sum `(L+R)/2` feeds pitch tracking and both shifters. Dry L/R stay stereo.
+
+### 2. Pitch tracking (YIN)
+
+Classic YIN (de Cheveigné & Kawahara) on a 1024-sample window, hop 256. Search is limited to about 80–800 Hz. A hit is kept only if confidence is high enough; otherwise confidence decays.
+
+A slow envelope of `f0` is the “intended” pitch. Instantaneous `f0` minus that envelope, in cents, is treated as vibrato. That vibrato is stored in a short history so each voice can replay it *late* (L by 3 hops, R by 6). Two singers do not lock vibrato to the same sample.
+
+Peak vs slow RMS envelope flags onsets. An onset bumps extra milliseconds onto each voice’s delay, then that bump decays — attacks do not land in perfect unison.
+
+### 3. Humanizer
+
+Every hop, each voice gets its own random walks (xorshift, independent seeds):
+
+- two pitch walks (fast + slow), clamped to ±15 cents
+- one delay walk, ±5 ms
+
+Voice pitch in cents:
+
+`baseCents * Spread + walks * Humanize + delayedVibrato * Humanize`
+
+Voice delay:
+
+`12 ms + (baseDelay − 12 ms) * Spread + delayWalk * Humanize + onset bump`
+
+At full spread the bases are L `+12` cents / `20` ms and R `−9` cents / `28` ms. Asymmetric on purpose so L and R are not a mirror pair (a mirror pair still combs in mono).
+
+### 4. Pitch shift (not a delay Doppler)
+
+Each voice runs its own [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) instance (`presetCheaper`, split computation). `process()` is called with equal input and output lengths, so the engine pitch-shifts and does **not** time-stretch. Transpose is `cents / 100` semitones, updated every hop.
+
+That is the difference vs chorus: chorus pitch comes from delaying faster or slower (Doppler on the same waveform). Here the spectrum is actually remapped.
+
+### 5. Per-voice delay
+
+After Stretch, each voice goes through a delay line with Catmull–Rom interpolation. The delay target is smoothed (~70 ms) so it does not zipper. Floor is 12 ms, so wet never sits on top of dry even at Spread = 0.
+
+### 6. Mix (anti-comb)
+
+Dry is read back from a delay equal to Stretch input+output latency. The host is told that latency (`setLatencySamples`), so Mix = 0 is the original, in time.
+
+Wet is not summed into both channels as a mono double. At Width = 1, the L voice stays left and the R voice stays right. Lower Width crossfades them toward the center. Dry+wet therefore do not put two nearly-identical waveforms in the same speaker, which is what makes chorus comb.
+
+```
+outL = dryL * (1 − Mix) + (wL * lToL + wR * rToL) * Mix
+outR = dryR * (1 − Mix) + (wL * lToR + wR * rToR) * Mix
+```
+
+Reported plugin latency is Stretch only. The extra 12–28 ms on the wet voices is the doubling, not compensation.
 
 ## Check
 
