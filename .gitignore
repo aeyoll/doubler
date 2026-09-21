@@ -1,0 +1,5 @@
+/build
+/cmake-build-*
+/.cache
+CMakeUserPresets.json
+.DS_Store
