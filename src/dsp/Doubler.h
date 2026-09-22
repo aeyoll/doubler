@@ -15,6 +15,8 @@ constexpr float kSpreadCentsR = -9.f;
 constexpr float kDelayMsL = 20.f;
 constexpr float kDelayMsR = 28.f;
 constexpr float kMinDelayMs = 12.f;
+// 20 ms delay notches ~25 Hz; wet HP keeps that hole off the dry bass.
+constexpr float kWetHpHz = 220.f;
 constexpr int kYinSize = 1024;
 constexpr int kHop = 256;
 
@@ -202,6 +204,8 @@ public:
 
         tauMin = std::max(2, (int) (sr / 800.f));
         tauMax = std::min(kYinSize / 2, (int) (sr / 80.f));
+        hpA = 1.f - std::exp(-6.2831853f * kWetHpHz / sr);
+        hpLp[0] = hpLp[1] = 0.f;
     }
 
     void reset()
@@ -351,8 +355,6 @@ private:
 
     void mixHop(const float* inL, const float* inR, float* outL, float* outR, int h)
     {
-        const float dryGain = 1.f - mix;
-        const float wetGain = mix;
         const float lToL = 0.5f + 0.5f * width;
         const float lToR = 0.5f - 0.5f * width;
         const float rToR = 0.5f + 0.5f * width;
@@ -384,8 +386,14 @@ private:
                     wR = s;
             }
 
-            outL[i] = dL * dryGain + (wL * lToL + wR * rToL) * wetGain;
-            outR[i] = dR * dryGain + (wL * lToR + wR * rToR) * wetGain;
+            hpLp[0] += hpA * (wL - hpLp[0]);
+            hpLp[1] += hpA * (wR - hpLp[1]);
+            wL -= hpLp[0];
+            wR -= hpLp[1];
+
+            // Dry stays full-level; Mix only brings in wet. 50/50 replace is the deepest comb.
+            outL[i] = dL + (wL * lToL + wR * rToL) * mix;
+            outR[i] = dR + (wL * lToR + wR * rToR) * mix;
         }
     }
 
@@ -397,6 +405,8 @@ private:
     float f0 = 0.f, f0Smooth = 0.f, confidence = 0.f, env = 0.f, slowEnv = 0.f;
     int maxN = 0, stretchLatency = 0, dryMask = 0, dryW = 0;
     int yinW = 0, hopFill = 0, tauMin = 2, tauMax = 512, vibW = 0;
+    float hpA = 0.f;
+    float hpLp[2] = {};
 };
 
 } // namespace doubler

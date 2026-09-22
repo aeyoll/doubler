@@ -86,6 +86,13 @@ int main()
     wetEngine.setParams(1.f, 1.f, 0.f, 1.f);
     wetEngine.process(in.data(), in.data(), wetL.data(), wetR.data(), n);
 
+    // Mix is wet *add* (dry stays). Isolate voices for pitch/corr checks.
+    for (int i = 0; i < n; ++i)
+    {
+        wetL[(size_t) i] -= dryL[(size_t) i];
+        wetR[(size_t) i] -= dryR[(size_t) i];
+    }
+
     const int yinN = doubler::kYinSize;
     const int off = lat + (int) (0.4f * sr);
     const auto pitchAt = [&](const float* x) {
@@ -119,6 +126,21 @@ int main()
         fail("aligned delay copy should match input");
     if (cWet > 0.85f)
         fail("wet still as correlated as a delay copy");
+
+    {
+        std::vector<float> low((size_t) n), outLow((size_t) n), ign((size_t) n);
+        constexpr float hz = 25.f;
+        for (int i = 0; i < n; ++i)
+            low[(size_t) i] = 0.3f * std::sin(2.f * 3.14159265f * hz * (float) i / sr);
+        doubler::Engine bass;
+        bass.prepare(sr, 512);
+        bass.setParams(0.5f, 1.f, 0.f, 1.f);
+        bass.process(low.data(), low.data(), outLow.data(), ign.data(), n);
+        const int bOff = bass.latencySamples() + (int) (0.4f * sr);
+        const int bUse = 8192;
+        if (rmsErr(outLow.data() + bOff, low.data() + bOff - bass.latencySamples(), bUse) > 0.08f)
+            fail("mix should not comb-cancel bass");
+    }
 
     std::printf("ok  lat=%d  f0L=%.2f (want %.2f)  f0R=%.2f (want %.2f)  corr wet=%.3f delay=%.3f\n",
                 lat, pL.f0Hz, expectL, pR.f0Hz, expectR, cWet, cDelay);

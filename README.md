@@ -30,7 +30,7 @@ Plugin codes: manufacturer `Aeyl`, plugin `Dblr`.
 
 | Param | Default | Role |
 | --- | --- | --- |
-| Mix | 0.5 | Dry / wet |
+| Mix | 0.5 | Wet level (dry stays; not a replace blend) |
 | Spread | 0.7 | How far L/R cents and delays diverge |
 | Humanize | 0.5 | Random walk on pitch/delay plus delayed vibrato from the tracker |
 | Width | 1.0 | Stereo placement of the two wet voices |
@@ -104,14 +104,20 @@ After Stretch, each voice goes through a delay line with Catmull–Rom interpola
 
 Dry is read back from a delay equal to Stretch input+output latency. The host is told that latency (`setLatencySamples`), so Mix = 0 is the original, in time.
 
-Wet is not summed into both channels as a mono double. At Width = 1, the L voice stays left and the R voice stays right. Lower Width crossfades them toward the center. Dry+wet therefore do not put two nearly-identical waveforms in the same speaker, which is what makes chorus comb.
+Dry is **not** faded out as Mix goes up. Mix only adds the two wet voices. A 50/50 replace (`dry*(1-mix)+wet*mix`) is the deepest comb: wherever the 12–28 ms copy is out of phase, the original gets a hole.
+
+Wet is high-passed at 220 Hz before the add. A 20 ms delay puts a notch at 25 Hz; that hole would eat the bass. The double lives in mids/highs, bass stays the dry signal.
+
+At Width = 1, the L voice stays left and the R voice stays right. Lower Width crossfades them toward the center.
 
 ```
-outL = dryL * (1 − Mix) + (wL * lToL + wR * rToL) * Mix
-outR = dryR * (1 − Mix) + (wL * lToR + wR * rToR) * Mix
+outL = dryL + (wL * lToL + wR * rToL) * Mix
+outR = dryR + (wL * lToR + wR * rToR) * Mix
 ```
 
 Reported plugin latency is Stretch only. The extra 12–28 ms on the wet voices is the doubling, not compensation.
+
+If a track is still phasey, Mix = 0 and use the plugin 100% wet on a **send** instead (no dry in the same insert).
 
 ## Check
 
