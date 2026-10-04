@@ -22,6 +22,11 @@ FetchContent_Declare(signalsmith_stretch
 
 FetchContent_MakeAvailable(JUCE signalsmith_stretch)
 
+set(copy_plugin_after_build TRUE)
+if(DEFINED ENV{CI})
+    set(copy_plugin_after_build FALSE)
+endif()
+
 juce_add_plugin(Doubler
     COMPANY_NAME Aeyoll
     BUNDLE_ID com.aeyoll.doubler
@@ -30,7 +35,7 @@ juce_add_plugin(Doubler
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    COPY_PLUGIN_AFTER_BUILD ${copy_plugin_after_build}
     PLUGIN_MANUFACTURER_CODE Aeyl
     PLUGIN_CODE Dblr
     FORMATS AU VST3 Standalone
